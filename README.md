@@ -1,0 +1,1 @@
+# vkbs_2026_ms_g6_openday
