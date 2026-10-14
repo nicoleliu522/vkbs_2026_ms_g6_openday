@@ -159,6 +159,7 @@
   .receipt .clist{margin:8px 0 4px;border-top:1px solid var(--line);padding-top:8px}
   .receipt .c{margin-bottom:7px}
   .receipt .c .n{font-weight:600}
+  .receipt .c .n .tch{color:var(--primary);font-weight:600}
   .receipt .c .d{font-size:11.5px;color:#8b98a5;margin-top:2px}
   .receipt .note{margin-top:10px;background:var(--orange-light);color:#a8621a;font-size:11.5px;line-height:1.7;border-radius:9px;padding:9px 10px}
   .receipt .rfoot{display:flex;gap:10px;margin-top:12px}
@@ -181,7 +182,12 @@
     </div>
   </div>
 
-  <div class="content" id="content"></div>
+  <div class="content" id="content">
+    <div class="card">
+      <div class="sec-title">⏳ 正在加载…</div>
+      <div class="tip">正在初始化选课系统。若本提示停留超过 3 秒，页面会自动显示诊断信息（不会白屏）。</div>
+    </div>
+  </div>
 
   <div id="submitbar"></div>
 
@@ -196,18 +202,68 @@
 
 <script>
 /* =====================================================================
+   〇、启动看门狗（纯 ES5 语法，老浏览器也能执行）
+   作用：任何原因导致下方主脚本没能跑起来（浏览器过旧、文件被复制不全、
+        脚本报错），都在页面上显示诊断信息，而不是留下一片空白。
+   ===================================================================== */
+(function(){
+  var FULL_SIZE = 62000;   // 完整文件的字符数（约 61 KB），用于判断文件是否完整
+  window.__vkbsBooted = false;
+
+  function panel(title, lines){
+    try{
+      var el = document.getElementById('content');
+      if(!el) return;
+      var html = '<div class="banner">⚠️ ' + title + '</div><div class="card"><div class="sec-title">🔍 诊断信息</div>';
+      html += '<div class="tip">' + lines.join('<br>') + '</div></div>';
+      el.innerHTML = html;
+    }catch(e){}
+  }
+  window.__vkbsDiag = panel;
+
+  function diagnose(){
+    if(window.__vkbsBooted) return;
+    var size = 0;
+    try{ size = document.documentElement.outerHTML.length; }catch(e){}
+    var lines = [
+      '· 访问时间：' + new Date().toLocaleString('zh-CN'),
+      '· 浏览器：' + navigator.userAgent,
+      '· 当前页面脚本大小：约 ' + Math.round(size / 1024) + ' KB（完整版应约 ' + Math.round(FULL_SIZE / 1024) + ' KB）',
+      (size > 0 && size < FULL_SIZE * 0.8 ? '❗ 脚本内容明显偏小，很可能是复制/保存不完整，请重新下载完整文件。' : ''),
+      (navigator.userAgent.indexOf('Trident') > -1 || navigator.userAgent.indexOf('MSIE') > -1 ? '❗ 检测到 IE 内核浏览器，请改用 Edge / Chrome / 微信内置浏览器打开。' : ''),
+      '· 建议：① 用 Edge 或 Chrome 双击打开本文件；② 确认文件为 UTF-8 编码且完整；③ 按 F12 → Console 查看红色报错并截图反馈。'
+    ].filter(Boolean);
+    panel('页面脚本未能正常启动，已停止加载。', lines);
+  }
+
+  window.onerror = function(msg, src, line, col){
+    if(window.__vkbsBooted) return false;
+    var lines = ['· 错误信息：' + msg, '· 出错位置：第 ' + line + ' 行' + (src ? '（' + src + '）' : ''),
+      '· 浏览器：' + navigator.userAgent,
+      '· 常见原因：文件复制不完整、浏览器版本过旧、或内部网络限制脚本执行。'];
+    panel('页面脚本执行出错，已停止加载。', lines);
+    return false;
+  };
+  if(window.addEventListener){
+    window.addEventListener('load', function(){ setTimeout(diagnose, 3000); });
+  }else{
+    setTimeout(diagnose, 3500);
+  }
+})();
+</script>
+
+<script>
+/* =====================================================================
    一、配置区
    ===================================================================== */
-const DB_URL   = 'https://vkbs-2026-g6-open-day-default-rtdb.asia-southeast1.firebasedatabase.app';
-const DB_PATH  = '/registrations';   // 数据根节点
-const ADMIN_NODE = '/admins';        // 管理员 UID 白名单节点（只读，控制台维护）
+const DB_URL  = 'https://vkbs-2026-g6-open-day-default-rtdb.asia-southeast1.firebasedatabase.app';
+const DB_PATH = '/registrations';   // 数据根节点
 
-/* Firebase Web API Key：项目设置 → 通用 → 你的应用 → Web API Key
-   留空时，首次打开页面可在「管理」页粘贴一次，之后永久保存在本机 */
-const API_KEY_DEFAULT = '';
-/* 管理员账号：控制台 Authentication 里建好的邮箱账号（可只填 @ 前的部分） */
-const ADMIN_EMAIL      = 'admin@vkbs.edu';
-const ADMIN_EMAIL_DOMAIN = 'vkbs.edu';
+/* 管理员账号（前端校验，仅作访问门槛，用于防止家长误入后台）
+   ⚠️ 前端校验不等于安全防护：真正的数据防护由数据库安全规则负责。
+   如需更高安全性，请改用带登录认证的方案（见配套说明文档）。 */
+const ADMIN_USER = 'admin';
+const ADMIN_PASS = 'vkbsms123';
 
 const CAPACITY = 8;   // 每节课限 8 名家长
 const MAX_PICK = 2;   // 每位家长限选 2 节
@@ -230,11 +286,11 @@ const SESSIONS = [
   {id:'e2', period:'P1', type:'eng', name:'英语 · S1 层 (A)', level:'S1',  teacher:'Sarah Harkin',      room:'208', grp:['6-1','6-2','6-3']},
   {id:'e3', period:'P1', type:'eng', name:'英语 · S1 层 (B)', level:'S1',  teacher:'Lauren Berry',      room:'207', grp:['6-1','6-2','6-3']},
   {id:'e4', period:'P1', type:'eng', name:'英语 · ESL 层 (A)',level:'ESL', teacher:'Calum Carey',       room:'206', grp:['6-1','6-2','6-3']},
-  {id:'m1', period:'P1', type:'math', name:'数学 Math', level:'何春莉老师组', teacher:'何春莉 Ms. Cathy He', room:'209', grp:['6-4','6-5']},
+  {id:'m1', period:'P1', type:'math', name:'数学 Math', level:'何春利老师组', teacher:'何春利 Ms. Cathy He', room:'209', grp:['6-4','6-5']},
   {id:'m2', period:'P1', type:'math', name:'数学 Math', level:'涂恋恋老师组', teacher:'涂恋恋 Ms. Tu',       room:'210', grp:['6-4','6-5']},
   // ---------- P2 ----------
-  {id:'m3', period:'P2', type:'math', name:'数学 Math', level:'秦秦睿老师组', teacher:'秦秦睿 Ms. Katie Qin', room:'206', grp:['6-1','6-2','6-3']},
-  {id:'m4', period:'P2', type:'math', name:'数学 Math', level:'白文炜老师组', teacher:'白文炜 Ms. Bai',       room:'207', grp:['6-1','6-2','6-3']},
+  {id:'m3', period:'P2', type:'math', name:'数学 Math', level:'秦蓉蓉老师组', teacher:'秦蓉蓉 Ms. Qin', room:'206', grp:['6-1','6-2','6-3']},
+  {id:'m4', period:'P2', type:'math', name:'数学 Math', level:'白文艳老师组', teacher:'白文艳 Ms. Bai',       room:'207', grp:['6-1','6-2','6-3']},
   {id:'m5', period:'P2', type:'math', name:'数学 Math', level:'涂恋恋老师组', teacher:'涂恋恋 Ms. Tu',        room:'208', grp:['6-1','6-2','6-3']},
   {id:'g1', period:'P2', type:'cls', name:'G-Science', teacher:'James Stewart', room:'209', cls:'6-4'},
   {id:'g2', period:'P2', type:'cls', name:'G-Science', teacher:'Mr.P',          room:'210', cls:'6-5'},
@@ -258,103 +314,27 @@ const sessionById = id => SESSIONS.find(s => s.id === id);
    二、本地存储
    ===================================================================== */
 const LS = {
-  get(k, d){ try{ return JSON.parse(localStorage.getItem(k)) ?? d; }catch(e){ return d; } },
-  set(k, v){ localStorage.setItem(k, JSON.stringify(v)); },
-  del(k){ localStorage.removeItem(k); }
+  get(k, d){
+    try{
+      const v = localStorage.getItem(k);
+      if(v === null || v === undefined) return d;
+      const p = JSON.parse(v);
+      return p === null ? d : p;
+    }catch(e){ return d; }
+  },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} },
+  del(k){ try{ localStorage.removeItem(k); }catch(e){} }
 };
-const K_ME = 'vkbs_g6_me', K_PICKS = 'vkbs_g6_picks', K_KEY = 'vkbs_g6_key';
-const K_AUTH = 'vkbs_g6_auth', K_APIKEY = 'vkbs_g6_apikey', K_RCPT = 'vkbs_g6_receipt';
+const K_ME = 'vkbs_g6_me', K_PICKS = 'vkbs_g6_picks', K_KEY = 'vkbs_g6_key', K_RCPT = 'vkbs_g6_receipt';
 
 /* =====================================================================
-   三、身份认证（方案 B：家长匿名登录 + 管理员邮箱密码）
-   ===================================================================== */
-const apiKey = () => LS.get(K_APIKEY, '') || API_KEY_DEFAULT;
-const AUTH = { uid:null, idToken:null, refreshToken:null, exp:0, isAdmin:false };
-let authState = 'idle';   // idle | ready | nokey | error
-
-function postJson(url, body){
-  return fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
-    .then(async r => {
-      const j = await r.json().catch(() => ({}));
-      if(j.error) throw new Error(authErrMsg(j.error.message));
-      return j;
-    });
-}
-function authErrMsg(code){
-  const c = String(code || '');
-  if(c.includes('API key not valid') || c.includes('API_KEY_INVALID')) return 'Web API Key 无效，请检查配置';
-  if(c.includes('OPERATION_NOT_ALLOWED') || c.includes('ADMIN_ONLY_OPERATION')) return '匿名登录未启用，请在 Firebase 控制台启用「匿名」登录方式';
-  if(c.includes('EMAIL_NOT_FOUND') || c.includes('INVALID_PASSWORD') || c.includes('INVALID_LOGIN_CREDENTIALS')) return '账号或密码错误';
-  if(c.includes('TOO_MANY_ATTEMPTS_TRY_LATER')) return '尝试过于频繁，请稍后再试';
-  if(c.includes('USER_DISABLED')) return '该账号已被停用';
-  return '认证失败：' + c;
-}
-function setAuth(j, isAdmin){
-  AUTH.uid          = j.localId || j.user_id;
-  AUTH.idToken      = j.idToken || j.id_token;
-  AUTH.refreshToken = j.refreshToken || j.refresh_token;
-  AUTH.exp          = Date.now() + (+(j.expiresIn || j.expires_in || 3600)) * 1000 - 60000;
-  AUTH.isAdmin      = !!isAdmin;
-  LS.set(K_AUTH, { uid:AUTH.uid, refreshToken:AUTH.refreshToken, isAdmin:AUTH.isAdmin });
-  authState = 'ready';
-}
-/* 匿名登录（家长端，静默执行） */
-async function anonSignIn(){
-  const j = await postJson('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + apiKey(), { returnSecureToken:true });
-  setAuth(j, false);
-  return AUTH;
-}
-/* 管理员登录 */
-async function adminSignIn(account, password){
-  const email = account.includes('@') ? account : (account + '@' + ADMIN_EMAIL_DOMAIN);
-  const j = await postJson('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=' + apiKey(),
-    { email, password, returnSecureToken:true });
-  setAuth(j, true);
-  return AUTH;
-}
-/* 用 refreshToken 换取新的 idToken（ID Token 有效期 1 小时） */
-async function refreshIdToken(){
-  const body = new URLSearchParams({ grant_type:'refresh_token', refresh_token:AUTH.refreshToken });
-  const r = await fetch('https://securetoken.googleapis.com/v1/token?key=' + apiKey(),
-    { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body });
-  const j = await r.json().catch(() => ({}));
-  if(j.error) throw new Error(authErrMsg(j.error.message));
-  setAuth(j, AUTH.isAdmin);
-}
-/* 页面初始化：恢复会话或新建匿名身份 */
-async function authInit(){
-  if(!apiKey()){ authState = 'nokey'; paintLive(); return; }
-  const saved = LS.get(K_AUTH, null);
-  try{
-    if(saved && saved.refreshToken && !saved.isAdmin){   // 管理员会话不自动恢复，需重新登录
-      AUTH.uid = saved.uid; AUTH.refreshToken = saved.refreshToken;
-      await refreshIdToken(); authState = 'ready';
-    }else{
-      await anonSignIn();
-    }
-  }catch(e){
-    try{ await anonSignIn(); }catch(e2){ authState = 'error'; paintLive(); toast(e2.message || '身份初始化失败'); return; }
-  }
-  paintLive();
-}
-/* 写操作前确保 token 有效 */
-async function ensureAuth(){
-  if(!apiKey()) throw new Error('尚未配置 Web API Key，无法连接数据库');
-  if(!AUTH.uid){ await authInit(); }
-  if(!AUTH.idToken || Date.now() > AUTH.exp){ await refreshIdToken(); }
-  return AUTH.idToken;
-}
-
-/* =====================================================================
-   四、云端数据库（Realtime Database REST，所有请求带 ?auth=ID Token）
+   三、云端数据库（Realtime Database REST，直接读写，无需登录）
    ===================================================================== */
 let REG = [];                 // 全部登记记录
-let dbState = 'connecting';   // connecting | live | error | denied | nokey
+let dbState = 'connecting';   // connecting | live | error | denied
 
-async function api(method, path, body, retry){
-  if(!apiKey()){ dbState = 'nokey'; paintLive(); throw new Error('尚未配置 Web API Key'); }
-  if(!AUTH.idToken) await authInit();
-  const url = DB_URL + path + '.json?auth=' + encodeURIComponent(AUTH.idToken);
+async function api(method, path, body){
+  const url = DB_URL + path + '.json';
   const opt = { method, headers:{ 'Content-Type':'application/json' } };
   if(body !== undefined) opt.body = JSON.stringify(body);
 
@@ -363,31 +343,28 @@ async function api(method, path, body, retry){
   catch(e){ dbState = 'error'; paintLive(); throw new Error('网络连接失败，请检查网络后重试'); }
 
   if(res.status === 401 || res.status === 403){
-    if(!retry){                 // token 可能过期：刷新后重试一次
-      try{ await refreshIdToken(); return api(method, path, body, true); }catch(e){}
+    if(method === 'GET'){
+      dbState = 'denied'; paintLive();
+      throw new Error('数据库拒绝读取：请检查安全规则中 .read 的设置');
     }
-    dbState = 'denied'; paintLive();
-    throw new Error(AUTH.isAdmin
-      ? '数据库拒绝访问：请确认该管理员 UID 已加入 /admins 白名单'
-      : '数据库拒绝访问：可能是登录状态失效，请刷新页面重试');
+    throw new Error('数据库拒绝写入：当前安全规则不允许该操作（若规则为「仅允许新增」，则不支持修改与删除）');
   }
   if(!res.ok){ dbState = 'error'; paintLive(); throw new Error('请求失败（HTTP ' + res.status + '）'); }
+
   dbState = 'live'; paintLive();
   const txt = await res.text();
-  return txt ? JSON.parse(txt) : null;
+  try{ return txt ? JSON.parse(txt) : null; }catch(e){ return null; }
 }
 const fetchAll  = () => api('GET', DB_PATH);
 const pushRec   = (rec) => api('POST', DB_PATH, rec);
 const putRec    = (key, rec) => api('PUT', DB_PATH + '/' + key, rec);
 const deleteRec = (key) => api('DELETE', DB_PATH + '/' + key);
-const deleteAll = () => api('DELETE', DB_PATH);
 
 function applyRemote(data){
   REG = Object.entries(data || {}).map(([key, v]) => Object.assign({key}, v));
   render();
 }
 async function refresh(){
-  if(!apiKey() || !AUTH.idToken) return;
   try{ applyRemote(await fetchAll()); }catch(e){ /* 状态已记录 */ }
 }
 /* 实时推送：Firebase REST 的 SSE 流（失败自动降级为轮询） */
@@ -395,11 +372,11 @@ let ES = null;
 function startRealtime(){
   paintLive();
   if(ES){ try{ ES.close(); }catch(e){} ES = null; }
-  if(window.EventSource && apiKey() && AUTH.idToken){
+  if(window.EventSource){
     try{
-      ES = new EventSource(DB_URL + DB_PATH + '.json?auth=' + encodeURIComponent(AUTH.idToken));
+      ES = new EventSource(DB_URL + DB_PATH + '.json');
       ES.addEventListener('put', e => {
-        const m = JSON.parse(e.data);
+        let m; try{ m = JSON.parse(e.data); }catch(err){ return; }
         if(m.path === '/'){ applyRemote(m.data); }
         else if(m.data === null){
           const k = m.path.slice(1).split('/')[0];
@@ -423,18 +400,27 @@ function startRealtime(){
     document.addEventListener('visibilitychange', () => { if(!document.hidden) refresh(); });
   }
 }
+let lastLive = null;
 function paintLive(){
   const dot = $('#liveDot'), txt = $('#liveTxt');
   if(!dot) return;
-  if(authState === 'nokey' || dbState === 'nokey'){ dot.className = 'dot off'; txt.textContent = '待配置密钥'; return; }
-  if(dbState === 'live'){ dot.className = 'dot'; txt.textContent = AUTH.isAdmin ? '管理员模式' : '实时同步中'; return; }
-  if(dbState === 'denied'){ dot.className = 'dot off'; txt.textContent = '无访问权限'; return; }
-  if(dbState === 'error'){ dot.className = 'dot off'; txt.textContent = '连接异常'; return; }
-  txt.textContent = '连接中';
+  let label;
+  if(dbState === 'live')        label = adminIn ? '管理员模式' : '实时同步中';
+  else if(dbState === 'denied') label = '无访问权限';
+  else if(dbState === 'error')  label = '连接异常';
+  else                          label = '连接中';
+  dot.className = (dbState === 'live' || dbState === 'connecting') ? 'dot' : 'dot off';
+  txt.textContent = label;
+
+  /* 连接状态发生变化时刷新内容区，让「云端连接异常」等提示横幅能及时出现。
+     ① 仅在已登记信息（非表单填写中）时重绘，避免打断家长正在输入的内容；
+     ② 管理员未登录时不重绘，避免清空登录框里已输入的账号密码。 */
+  if(lastLive !== null && lastLive !== dbState && me && !(tab === 'admin' && !adminIn)) render();
+  lastLive = dbState;
 }
 
 /* =====================================================================
-   五、页面状态
+   四、页面状态
    ===================================================================== */
 let me      = LS.get(K_ME, null);       // {cls, cn, en, phone}
 let picks   = LS.get(K_PICKS, []);      // ['e2','c11']
@@ -447,6 +433,8 @@ let submitting = false;                 // 防止重复提交
 const $  = s => document.querySelector(s);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtTime = ts => ts ? new Date(ts).toLocaleString('zh-CN', {hour12:false}) : '';
+/* 姓名归一化：忽略空格、全角空格等空白差异，避免「张 三」与「张三」被当成两个人 */
+const normName = s => String(s == null ? '' : s).replace(/\s+/g, '');
 function toast(msg){
   const t = $('#toast'); t.textContent = msg; t.style.display = 'block';
   clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 2200);
@@ -456,8 +444,23 @@ const seatsLeft  = id => Math.max(0, CAPACITY - takenCount(id));
 const myRecord   = () => REG.find(r => r.key === myKey) || null;
 const receiptNo  = key => 'VKBS-' + String(key || Date.now()).replace(/[^A-Za-z0-9]/g, '').slice(-6).toUpperCase();
 
+/* 课程名展示：英语、数学是分层走班的课堂，最怕家长选错层次或走错老师，
+   因此在这两类课名后「同时括号标注任课老师」，方便家长一眼核对；
+   班级课（语文/CCE/STEM/体育/赛艇/G-Science）不重复标注，保持简洁。 */
+function courseLabel(s){
+  if(!s) return '';
+  const t = (s.type === 'eng' || s.type === 'math') && s.teacher ? '（' + s.teacher + '）' : '';
+  return s.name + t;
+}
+/* 同上，但用于 HTML 渲染：老师名加高亮样式 */
+function courseLabelHTML(s){
+  if(!s) return '';
+  const t = (s.type === 'eng' || s.type === 'math') && s.teacher ? `<span class="tch">（${esc(s.teacher)}）</span>` : '';
+  return esc(s.name) + t;
+}
+
 /* =====================================================================
-   六、选课资格（按课表分组）
+   五、选课资格（按课表分组）
    ===================================================================== */
 function checkEligible(s, cls){
   if(s.type === 'cls') return s.cls === cls ? '' : '仅限 ' + s.cls + ' 班';
@@ -465,7 +468,7 @@ function checkEligible(s, cls){
 }
 
 /* =====================================================================
-   七、渲染
+   六、渲染
    ===================================================================== */
 function render(){
   const badge = $('#meBadge');
@@ -483,7 +486,6 @@ function render(){
 function renderForm(){
   $('#submitbar').innerHTML = '';
   $('#content').innerHTML = `
-  ${keyBanner()}
   <div class="card">
     <div class="sec-title">📝 学生信息登记</div>
     <div class="tip" style="margin-bottom:12px">每个家庭限 1 名家长代表参加开放日，请填写学生信息后开始选课。</div>
@@ -502,9 +504,20 @@ function renderForm(){
     <button class="btn-main" onclick="saveMe()">下一步：选择课程</button>
   </div>`;
 }
-function keyBanner(){
-  if(apiKey()) return '';
-  return `<div class="banner">🔧 尚未配置 Firebase Web API Key，暂时无法连接报名数据库。请到「管理」页粘贴一次密钥（只需一次，本机会记住）。</div>`;
+/* 环境诊断（管理页展示，用于排查打不开/连不上的问题） */
+function diagCard(){
+  const store = (function(){ try{ localStorage.setItem('__t','1'); localStorage.removeItem('__&#8203;t'); return '可用'; }catch(e){ return '被浏览器阻止（' + e.name + '）'; } })();
+  const pageKb = Math.round(document.documentElement.outerHTML.length / 1024);
+  return `<div class="card">
+    <div class="sec-title">🧪 环境诊断<span class="mini">排查问题用</span></div>
+    <div class="tip">
+      · 浏览器：${esc(navigator.userAgent)}<br>
+      · 本机存储：${esc(store)}<br>
+      · 数据库连接：${esc(dbState)}（live = 正常同步）<br>
+      · 实时推送：${ES ? '已启用（SSE）' : '未启用，已降级为 20 秒轮询'}<br>
+      · 页面脚本大小：约 ${pageKb} KB（完整版应大于 30 KB）
+    </div>
+  </div>`;
 }
 function saveMe(){
   const cls = $('#fCls').value.trim(), cn = $('#fCn').value.trim(),
@@ -512,8 +525,10 @@ function saveMe(){
   if(!cls)          return toast('请选择班级');
   if(!cn)           return toast('请填写学生中文姓名');
   if(!/^1[3-9]\d{9}$/.test(phone)) return toast('请填写正确的 11 位手机号');
-  const dup = REG.find(r => r.phone === phone || (r.cls === cls && r.cn === cn));
-  if(dup && dup.key !== myKey)
+  /* 一名学生（一个家庭）仅允许一名家长代表：按「班级 + 学生中文姓名」判定，
+     不按手机号判定，避免同一学生由不同家长用多个手机号重复报名占位。 */
+  const dup = REG.find(r => r.key !== myKey && r.cls === cls && normName(r.cn) === normName(cn));
+  if(dup)
     return toast('该学生已有家长提交过选课（' + dup.cn + '），每个家庭限 1 名家长代表，如需调整请联系班主任');
   me = {cls, cn, en, phone}; LS.set(K_ME, me);
   toast('信息已保存'); render();
@@ -525,10 +540,10 @@ function renderPick(){
   const useLocal = !rec || editing;
   const chosen = useLocal ? picks : (rec.picks || []);
   const chosenPeriods = chosen.map(id => (sessionById(id) || {}).period);
-  let html = keyBanner();
+  let html = '';
 
-  if(authState === 'error' || dbState === 'denied'){
-    html += `<div class="banner">⚠️ 无法访问报名数据库。请确认：① 已在控制台启用「匿名」登录；② 已发布方案 B 的安全规则；③ 网络正常。错误：${esc(dbState === 'denied' ? '权限被拒绝' : '身份初始化失败')}</div>`;
+  if(dbState === 'denied'){
+    html += `<div class="banner">⚠️ 数据库拒绝访问：请检查安全规则是否已发布、路径是否为 <code>${DB_PATH}</code>。</div>`;
   }else if(dbState === 'error'){
     html += `<div class="banner warn">⚠️ 云端连接异常，名额可能不是最新的，请稍后重试。</div>`;
   }
@@ -555,7 +570,7 @@ function renderPick(){
       let btn;
       if(picked)        btn = `<button class="btn btn-cancel" onclick="unpick('${s.id}')">退选</button>`;
       else if(dis){
-        const r = full ? '已满员' : (fullUp ? '已达 2 节上限' : (conflict ? '时段冲突' : reason));
+        const r = reason ? reason : (fullUp ? '已达 2 节上限' : (conflict ? '时段冲突' : '已满员'));
         btn = `<span class="reason">${r}</span><button class="btn btn-off" disabled>选课</button>`;
       }else             btn = `<button class="btn btn-pick" onclick="pick('${s.id}')">选课</button>`;
 
@@ -587,9 +602,9 @@ function renderPick(){
 
 function pick(id){
   const s = sessionById(id); if(!s) return;
+  const r = checkEligible(s, me.cls); if(r) return toast('无法选择：' + r);   // 资格是硬性条件，优先提示
   if(picks.length >= MAX_PICK) return toast('每位家长最多选 ' + MAX_PICK + ' 节课');
   if(picks.some(p => sessionById(p).period === s.period)) return toast('与已选课程时段冲突（' + PERIOD_NAME[s.period] + '）');
-  const r = checkEligible(s, me.cls); if(r) return toast('无法选择：' + r);
   if(seatsLeft(id) <= 0) return toast('该课堂名额已满');
   picks.push(id); LS.set(K_PICKS, picks); render();
 }
@@ -598,14 +613,15 @@ function unpick(id){
 }
 
 /* =====================================================================
-   八、提交（① 明确确认 → ② 写入数据库 → ③ 回执）
+   七、提交（① 明确确认 → ② 写入数据库 → ③ 回执）
    ===================================================================== */
 function askSubmit(){
   if(!me) return renderForm();
   if(!picks.length) return toast('请至少选择 1 节课');
   const list = picks.map(id => {
-    const s = sessionById(id);
-    return `· ${s.period} ${s.name}\n   ${s.teacher}｜${s.room}`;
+    const s = sessionById(id) || {};
+    const meta = (s.type === 'eng' || s.type === 'math') ? ('📍 ' + s.room) : (s.teacher + '｜' + s.room);
+    return `· ${s.period} ${courseLabel(s)}\n   ${meta}`;
   }).join('\n');
   confirmBox({
     title: '请确认选课信息',
@@ -620,17 +636,16 @@ async function doSubmit(){
   submitting = true;
   modal(`<div class="modal"><h3>正在提交…</h3><p style="text-align:center"><span class="spin"></span>正在连接报名系统，请勿关闭页面</p></div>`);
   try{
-    await ensureAuth();
     await refresh();                                   // 取最新名额
     for(const id of picks){
       if(seatsLeft(id) <= 0) throw new Error('「' + sessionById(id).name + '」刚刚已满员，请返回重新选择');
     }
-    const dup = REG.find(r => r.key !== myKey && (r.phone === me.phone || (r.cls === me.cls && r.cn === me.cn)));
-    if(dup) throw new Error('该学生已由家长提交过选课（' + dup.phone + '），每个家庭限 1 名家长代表');
+    const dup = REG.find(r => r.key !== myKey && r.cls === me.cls && normName(r.cn) === normName(me.cn));
+    if(dup) throw new Error('该学生（' + me.cn + '，' + me.cls + ' 班）已有家长提交过选课，每个家庭限 1 名家长代表，如需调整请联系班主任');
 
     const rec = {
       cls: me.cls, cn: me.cn, en: me.en || '', phone: me.phone,
-      picks: picks.slice(), ts: Date.now(), owner: AUTH.uid
+      picks: picks.slice(), ts: Date.now()
     };
     if(myKey){
       await putRec(myKey, rec);                        // 修改：覆盖自己那条
@@ -651,15 +666,20 @@ async function doSubmit(){
 }
 
 /* =====================================================================
-   九、回执（成功 / 失败）
+   八、回执（成功 / 失败）
    ===================================================================== */
 function receiptHTML(o){
   const r = o.rec || {};
   const no = o.ok ? receiptNo(r.key) : '—';
   const courses = (r.picks || []).map(id => {
     const s = sessionById(id) || {name:id, period:'', teacher:'', room:''};
-    return `<div class="c"><div class="n">${esc(s.period)} ${esc(s.name)}</div>
-      <div class="d">${esc(s.teacher)} ｜ ${esc(s.room)}</div></div>`;
+    /* 英语、数学：课名后括号标注任课老师，帮助家长确认没有报错层次/老师；
+       此时详情行不再重复老师名，只留教室。 */
+    const meta = (s.type === 'eng' || s.type === 'math')
+      ? `📍 ${esc(s.room)}`
+      : `${esc(s.teacher)} ｜ ${esc(s.room)}`;
+    return `<div class="c"><div class="n">${esc(s.period)} ${courseLabelHTML(s)}</div>
+      <div class="d">${meta}</div></div>`;
   }).join('') || '<div class="c"><div class="n">—</div></div>';
 
   const body = `
@@ -717,7 +737,10 @@ function copyReceipt(){
     `回执编号：${o.ok ? receiptNo(r.key) : '—'}`,
     `学生：${r.cn || ''}${r.en ? ' / ' + r.en : ''}（${r.cls || ''} 班）`,
     `家长手机：${r.phone || ''}`,
-    ...(r.picks || []).map(id => { const s = sessionById(id) || {}; return `课程：${s.period || ''} ${s.name || id}｜${s.teacher || ''}｜${s.room || ''}`; }),
+    ...(r.picks || []).map(id => {
+      const s = sessionById(id);
+      return `课程：${(s && s.period) || ''} ${courseLabel(s) || id}${s && s.room ? '｜教室 ' + s.room : ''}`;
+    }),
     `提交时间：${fmtTime(r.ts)}`];
   if(!o.ok) lines.push(`失败原因：${o.reason || ''}`);
   const text = lines.join('\n');
@@ -750,7 +773,6 @@ function renderMe(){
   }).join('') : '<div class="empty">还没有选课，去「选课」页看看吧～</div>';
 
   $('#content').innerHTML = `
-  ${keyBanner()}
   ${(myKey && !rec) ? '<div class="banner warn">⏳ 正在从云端同步您的提交记录…</div>' : ''}
   <div class="card">
     <div class="me-head">
@@ -791,33 +813,20 @@ function resetMe(){
 }
 
 /* =====================================================================
-   十、管理后台（方案 B：Firebase 邮箱密码登录 + /admins 白名单）
+   九、管理后台（账号密码前端校验）
    ===================================================================== */
 function renderAdmin(){
   $('#submitbar').innerHTML = '';
-  if(!apiKey()){
-    $('#content').innerHTML = `
-    <div class="card">
-      <div class="sec-title">🔧 首次配置：Firebase Web API Key</div>
-      <div class="tip">打开 Firebase 控制台 → ⚙ 项目设置 → 通用 → 你的应用 → 复制 <b>Web API Key</b>（形如 <code>AIza...</code>），粘贴到下面。只需配置一次，本机浏览器会记住。</div>
-      <div class="form-item" style="margin-top:12px"><label>Web API Key</label>
-        <input id="fKey" placeholder="AIza..." value=""></div>
-      <button class="btn-main" onclick="saveApiKey()">保存并连接</button>
-      <div class="tip" style="margin-top:8px">提示：也可以把它写进页面源码顶部的 <code>API_KEY_DEFAULT</code>，这样家长端不必再配置。</div>
-    </div>`;
-    return;
-  }
-  if(!adminIn || !AUTH.isAdmin){
+  if(!adminIn){
     $('#content').innerHTML = `
     <div class="card">
       <div class="sec-title">🔐 管理员登录</div>
-      <div class="tip" style="margin-bottom:10px">使用 Firebase Authentication 中创建的管理员账号（当前默认域名 <b>@${ADMIN_EMAIL_DOMAIN}</b>，可只填 @ 前的部分）。</div>
-      <div class="form-item"><label>管理员账号</label><input id="aUser" placeholder="admin 或 admin@${ADMIN_EMAIL_DOMAIN}"></div>
-      <div class="form-item"><label>密码</label><input id="aPass" type="password" placeholder="密码"></div>
+      <div class="tip" style="margin-bottom:10px">仅学校管理员使用，登录后可查看 / 导出全部报名名单、删除记录。</div>
+      <div class="form-item"><label>管理员账号</label><input id="aUser" placeholder="账号"></div>
+      <div class="form-item"><label>密码</label><input id="aPass" type="password" placeholder="密码" onkeydown="if(event.key==='Enter')doLogin()"></div>
       <button class="btn-main" onclick="doLogin()">登录</button>
-      <div class="tip" style="margin-top:10px">登录后即可查看/导出全部报名名单、删除记录。仅学校管理员使用。</div>
-      <button class="btn-ghost" onclick="changeApiKey()">修改 Web API Key</button>
-    </div>`;
+    </div>
+    ${diagCard()}`;
     return;
   }
   const totalFamilies = REG.length;
@@ -832,10 +841,10 @@ function renderAdmin(){
       <div class="stat"><div class="n">${fullCount}</div><div class="l">已满课堂</div></div>
     </div>
     <div class="row-flex" style="margin-top:12px">
-      <button class="btn-sm" onclick="exportAll()">⬇ 一键导出全部名单</button>
-      <button class="btn-sm gray" onclick="exportBySession()">⬇ 导出各课堂名单</button>
+      <button class="btn-sm" onclick="askExport()">⬇ 导出报名表（Excel）</button>
       <button class="btn-sm gray" onclick="refresh()">↻ 刷新</button>
     </div>
+    <div class="tip" style="margin-top:8px">导出时可选择「按班级」（逐户名单，按班排序）或「按课堂」（逐节课名单），文件为 Excel。</div>
   </div>
 
   <div class="card">
@@ -879,38 +888,20 @@ function renderAdmin(){
   </div>`;
   $('#content').innerHTML = html;
 }
-function saveApiKey(){
-  const k = $('#fKey').value.trim();
-  if(!k || k.length < 20) return toast('请填写有效的 Web API Key');
-  LS.set(K_APIKEY, k);
-  toast('已保存，正在连接…');
-  authInit().then(() => { startRealtime(); render(); });
-}
-function changeApiKey(){
-  confirmBox({
-    title: '修改 Web API Key？',
-    desc: '清除本机保存的 Key 后需重新填写。',
-    onOk(){ LS.del(K_APIKEY); LS.del(K_AUTH); AUTH.idToken = null; AUTH.uid = null; authState = 'nokey'; render(); }
-  });
-}
-async function doLogin(){
+function doLogin(){
   const u = $('#aUser').value.trim(), p = $('#aPass').value;
   if(!u || !p) return toast('请输入账号和密码');
-  modal(`<div class="modal"><h3>正在登录…</h3><p style="text-align:center"><span class="spin"></span>正在验证管理员身份</p></div>`);
-  try{
-    await adminSignIn(u, p);
-    adminIn = true; sessionStorage.setItem('vkbs_g6_admin', '1');
-    closeModal(); toast('登录成功');
-    await refresh(); startRealtime(); render();
-  }catch(e){
-    closeModal(); toast(e.message || '登录失败');
+  if(u !== ADMIN_USER || p !== ADMIN_PASS){
+    return toast('账号或密码错误');
   }
+  adminIn = true; sessionStorage.setItem('vkbs_g6_admin', '1');
+  toast('登录成功'); paintLive();
+  refresh().then(() => render());
+  render();
 }
-async function doLogout(){
-  adminIn = false; AUTH.isAdmin = false; sessionStorage.removeItem('vkbs_g6_admin');
-  LS.del(K_AUTH);
-  await authInit();            // 退回匿名身份
-  startRealtime(); render();
+function doLogout(){
+  adminIn = false; sessionStorage.removeItem('vkbs_g6_admin');
+  paintLive(); render();
   toast('已退出管理员登录');
 }
 
@@ -927,7 +918,8 @@ function delOne(key){
     }
   });
 }
-/* 清空全部：需输入口令 */
+/* 清空全部：需输入口令。逐条删除（而非一次 DELETE 整个节点），
+   这样安全规则只需授权到「单条记录」级别，不必对整库开放删除权限。 */
 function delAll(){
   if(!REG.length) return toast('当前没有数据');
   confirmBox({
@@ -937,55 +929,286 @@ function delAll(){
     needText: '删除全部',
     okText: '永久删除', danger: true,
     async onOk(){
-      try{ await deleteAll(); toast('已清空全部数据'); await refresh(); }
-      catch(e){ toast(e.message || '清空失败'); }
+      const keys = REG.map(r => r.key);
+      let n = 0, err = 0;
+      for(const k of keys){
+        try{ await deleteRec(k); n++; }catch(e){ err++; }
+      }
+      await refresh();
+      toast(err ? ('已删除 ' + n + ' 条，' + err + ' 条被规则拒绝') : ('已删除全部 ' + n + ' 条记录'));
     }
   });
 }
 
 /* =====================================================================
-   十一、导出 CSV
+   十、导出 Excel（.xlsx，纯前端生成，无任何外部依赖 / 无需联网）
+
+   原理：xlsx 本质是一个 ZIP 包，里面装着几份 OOXML。这里手写这几份 XML，
+   再用「存储式 ZIP（不压缩）」打包成真正的 .xlsx。
+   好处：Excel / WPS / Numbers 都能正常打开，不会出现
+        「文件格式与扩展名不符」的警告（用 HTML 表格冒充 .xls 就会）。
    ===================================================================== */
-function csvCell(v){
-  const s = String(v == null ? '' : v);
-  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+/* ---------- 10.1 UTF-8 编码 & CRC32 ---------- */
+function utf8Bytes(str){
+  const s = String(str), out = [];
+  for(let i = 0; i < s.length; i++){
+    let c = s.charCodeAt(i);
+    if(c < 0x80) out.push(c);
+    else if(c < 0x800){ out.push(0xC0 | (c >> 6), 0x80 | (c & 63)); }
+    else if(c >= 0xD800 && c <= 0xDBFF && i + 1 < s.length){
+      const c2 = s.charCodeAt(i + 1);
+      const cp = 0x10000 + ((c - 0xD800) << 10) + (c2 - 0xDC00);
+      out.push(0xF0 | (cp >> 18), 0x80 | ((cp >> 12) & 63), 0x80 | ((cp >> 6) & 63), 0x80 | (cp & 63));
+      i++;
+    }else if(c >= 0xDC00 && c <= 0xDFFF){ out.push(0xEF, 0xBF, 0xBD); }   // 孤立代理项 → U+FFFD
+    else { out.push(0xE0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63)); }
+  }
+  return new Uint8Array(out);
 }
-function downloadCSV(rows, filename){
-  const csv = '\ufeff' + rows.map(r => r.map(csvCell).join(',')).join('\r\n');
-  const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+const CRC32_TABLE = (function(){
+  const t = new Uint32Array(256);
+  for(let n = 0; n < 256; n++){
+    let c = n;
+    for(let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(bytes){
+  let c = 0xFFFFFFFF;
+  for(let i = 0; i < bytes.length; i++) c = CRC32_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+/* ---------- 10.2 存储式 ZIP 打包 ---------- */
+function zipStore(files){
+  const chunks = [], central = [];
+  let offset = 0;
+  files.forEach(f => {
+    const nameB = utf8Bytes(f.name), data = f.data, crc = crc32(data), size = data.length;
+    const lh = new Uint8Array(30 + nameB.length), lv = new DataView(lh.buffer);
+    lv.setUint32(0, 0x04034b50, true);          // 本地文件头签名
+    lv.setUint16(4, 20, true);                  // 解压所需版本
+    lv.setUint16(6, 0x0800, true);              // 文件名使用 UTF-8
+    lv.setUint16(8, 0, true);                   // 压缩方式 0 = 不压缩
+    lv.setUint16(10, 0, true);                  // 修改时间
+    lv.setUint16(12, 0x21, true);               // 修改日期 1980-01-01
+    lv.setUint32(14, crc, true);
+    lv.setUint32(18, size, true);
+    lv.setUint32(22, size, true);
+    lv.setUint16(26, nameB.length, true);
+    lv.setUint16(28, 0, true);
+    lh.set(nameB, 30);
+    chunks.push(lh, data);
+
+    const ch = new Uint8Array(46 + nameB.length), cv = new DataView(ch.buffer);
+    cv.setUint32(0, 0x02014b50, true);          // 中央目录头签名
+    cv.setUint16(4, 20, true);                  // 生成版本
+    cv.setUint16(6, 20, true);                  // 解压所需版本
+    cv.setUint16(8, 0x0800, true);
+    cv.setUint16(10, 0, true);
+    cv.setUint16(12, 0, true);
+    cv.setUint16(14, 0x21, true);
+    cv.setUint32(16, crc, true);
+    cv.setUint32(20, size, true);
+    cv.setUint32(24, size, true);
+    cv.setUint16(28, nameB.length, true);
+    cv.setUint32(42, offset, true);
+    ch.set(nameB, 46);
+    central.push(ch);
+
+    offset += lh.length + size;
+  });
+  let cdSize = 0; central.forEach(c => { cdSize += c.length; });
+  const eocd = new Uint8Array(22), ev = new DataView(eocd.buffer);
+  ev.setUint32(0, 0x06054b50, true);            // 中央目录结束记录
+  ev.setUint16(8, files.length, true);
+  ev.setUint16(10, files.length, true);
+  ev.setUint32(12, cdSize, true);
+  ev.setUint32(16, offset, true);
+
+  const all = chunks.concat(central, [eocd]);
+  let total = 0; all.forEach(c => { total += c.length; });
+  const out = new Uint8Array(total);
+  let p = 0; all.forEach(c => { out.set(c, p); p += c.length; });
+  return out;
+}
+/* ---------- 10.3 工作表 XML ---------- */
+const xmlEsc = s => String(s == null ? '' : s)
+  .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')          // 去掉 XML 非法控制字符
+  .replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function xlsxColName(n){
+  let s = '';
+  while(n > 0){ const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); }
+  return s;
+}
+function xlsxCellXml(v, ref, bold){
+  if(v === null || v === undefined || v === '') return '';
+  const s = bold ? ' s="1"' : '';
+  if(typeof v === 'number' && isFinite(v)) return `<c r="${ref}"${s} t="n"><v>${v}</v></c>`;
+  return `<c r="${ref}"${s} t="inlineStr"><is><t xml:space="preserve">${xmlEsc(v)}</t></is></c>`;
+}
+function xlsxSheetXml(rows, widths){
+  const cols = (widths && widths.length)
+    ? '<cols>' + widths.map((w, i) => `<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`).join('') + '</cols>'
+    : '';
+  const body = (rows || []).map((row, ri) => {
+    const cells = (row || []).map((c, ci) => {
+      const isObj = c && typeof c === 'object' && !(c instanceof Date);
+      const v = isObj ? c.v : c;
+      const bold = !!(isObj && c.b);
+      return xlsxCellXml(v, xlsxColName(ci + 1) + (ri + 1), bold);
+    }).join('');
+    return `<row r="${ri + 1}">${cells}</row>`;
+  }).join('');
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+    + cols + `<sheetData>${body}</sheetData></worksheet>`;
+}
+const XLSX_CONTENT_TYPES =
+  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
++ '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
++ '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
++ '<Default Extension="xml" ContentType="application/xml"/>'
++ '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
++ '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
++ '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
++ '</Types>';
+const XLSX_ROOT_RELS =
+  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
++ '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
++ '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
++ '</Relationships>';
+const XLSX_WB_RELS =
+  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
++ '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
++ '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
++ '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
++ '</Relationships>';
+const XLSX_STYLES =
+  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
++ '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
++ '<fonts count="2">'
++ '<font><sz val="11"/><color theme="1"/><name val="等线"/><charset val="134"/></font>'
++ '<font><b/><sz val="11"/><color theme="1"/><name val="等线"/><charset val="134"/></font>'
++ '</fonts>'
++ '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>'
++ '<borders count="1"><border/></borders>'
++ '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
++ '<cellXfs count="2">'
++ '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
++ '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
++ '</cellXfs>'
++ '<cellStyles count="1"><cellStyle name="常规" xfId="0" builtinId="0"/></cellStyles>'
++ '</styleSheet>';
+function xlsxParts(sheetName, rows, widths){
+  const name = xmlEsc(String(sheetName || 'Sheet1').replace(/[$$$$\*\?\/\\:]/g, '')).slice(0, 31) || 'Sheet1';
+  const workbook = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    + '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
+    + ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+    + `<sheets><sheet name="${name}" sheetId="1" r:id="rId1"/></sheets></workbook>`;
+  return [
+    {name:'[Content_Types].xml',            data:utf8Bytes(XLSX_CONTENT_TYPES)},
+    {name:'_rels/.rels',                    data:utf8Bytes(XLSX_ROOT_RELS)},
+    {name:'xl/workbook.xml',                data:utf8Bytes(workbook)},
+    {name:'xl/_rels/workbook.xml.rels',     data:utf8Bytes(XLSX_WB_RELS)},
+    {name:'xl/styles.xml',                  data:utf8Bytes(XLSX_STYLES)},
+    {name:'xl/worksheets/sheet1.xml',       data:utf8Bytes(xlsxSheetXml(rows, widths))}
+  ];
+}
+/* ---------- 10.4 列宽自适应 & 下载 ---------- */
+function autoWidths(rows){
+  const widths = [];
+  (rows || []).forEach(row => (row || []).forEach((c, i) => {
+    const v = (c && typeof c === 'object') ? c.v : c;
+    /* 中文按 2 个字符宽估算 */
+    const len = String(v == null ? '' : v).replace(/[^\x00-\xff]/g, 'xx').length;
+    if(!widths[i] || len > widths[i]) widths[i] = len;
+  }));
+  return widths.map(x => Math.min(46, Math.max(9, Math.round(x + 2))));
+}
+function triggerDownload(blob, filename){
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = filename;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  toast('已导出：' + filename);
+  setTimeout(() => { try{ URL.revokeObjectURL(a.href); }catch(e){} }, 2000);
 }
-function exportAll(){
+function downloadXlsx(sheetName, rows, filename){
+  const blob = new Blob([zipStore(xlsxParts(sheetName, rows, autoWidths(rows)))],
+    {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  triggerDownload(blob, filename);
+  toast('已导出 Excel：' + filename);
+}
+const todayStr = () => new Date().toISOString().slice(0, 10);
+
+/* ---------- 10.5 两种导出方式（管理员可自选） ---------- */
+function askExport(){
   if(!REG.length) return toast('暂无可导出的数据');
-  const rows = [['回执编号','班级','中文姓名','英文名','家长手机号','已选课程','选课数','提交时间']];
-  REG.slice().sort((a, b) => String(a.cls).localeCompare(String(b.cls))).forEach(r => {
+  modal(`
+    <div class="modal">
+      <h3>导出报名表</h3>
+      <p>请选择导出方式（文件为 Excel，扩展名 .xlsx）：&#10;
+        · <b>按班级</b>：逐户列出学生信息与所选课程，按班级排序，便于分班点名核对&#10;
+        · <b>按课堂</b>：逐节课列出已报名家长名单与剩余名额，便于任课教师核对</p>
+      <div class="btns" style="margin-bottom:10px">
+        <button class="ok" onclick="exportByClass()">按班级导出</button>
+        <button class="ok" onclick="exportBySession()">按课堂导出</button>
+      </div>
+      <div class="btns"><button class="cancel" onclick="closeModal()">取消</button></div>
+    </div>`);
+}
+/* 按班级：一行 = 一个家庭 */
+function exportRowsByClass(){
+  const rows = [[
+    {v:'班级', b:1}, {v:'学生中文姓名', b:1}, {v:'学生英文名', b:1}, {v:'家长手机号', b:1},
+    {v:'已选课程', b:1}, {v:'选课数', b:1}, {v:'回执编号', b:1}, {v:'提交时间', b:1}
+  ]];
+  REG.slice().sort((a, b) =>
+      String(a.cls || '').localeCompare(String(b.cls || ''))
+   || String(a.cn || '').localeCompare(String(b.cn || ''), 'zh')
+  ).forEach(r => {
     const names = (r.picks || []).map(id => {
-      const s = sessionById(id) || {name:id, period:''};
-      return s.period + ' ' + s.name;
+      const s = sessionById(id);
+      return s ? (s.period + ' ' + courseLabel(s)) : id;
     });
-    rows.push([receiptNo(r.key), r.cls, r.cn, r.en || '', r.phone || '', names.join(' / '), names.length, fmtTime(r.ts)]);
+    rows.push([r.cls || '', r.cn || '', r.en || '', r.phone || '',
+      names.join(' / '), names.length, receiptNo(r.key), fmtTime(r.ts)]);
   });
-  const d = new Date().toISOString().slice(0, 10);
-  downloadCSV(rows, '开放日选课名单_' + d + '.csv');
+  return rows;
+}
+/* 按课堂：一行 = 一节课 */
+function exportRowsBySession(){
+  const rows = [[
+    {v:'时段', b:1}, {v:'课程', b:1}, {v:'任课教师', b:1}, {v:'教室', b:1}, {v:'面向班级', b:1},
+    {v:'容量', b:1}, {v:'已报人数', b:1}, {v:'剩余名额', b:1}, {v:'已报名家长', b:1}
+  ]];
+  PERIODS.forEach(pd => {
+    SESSIONS.filter(s => s.period === pd).forEach(s => {
+      const bs = REG.filter(r => (r.picks || []).includes(s.id));
+      const scope = s.type === 'cls' ? (s.cls + ' 班') : ((s.grp || []).join('/') + ' 班');
+      rows.push([s.period, s.name, s.teacher, s.room, scope, CAPACITY, bs.length,
+        Math.max(0, CAPACITY - bs.length),
+        bs.map(b => b.cn + '（' + b.cls + '班 ' + (b.phone || '') + '）').join('、')]);
+    });
+  });
+  return rows;
+}
+function exportByClass(){
+  closeModal();
+  if(!REG.length) return toast('暂无可导出的数据');
+  try{
+    downloadXlsx('按班级名单', exportRowsByClass(), '开放日报名表_按班级_' + todayStr() + '.xlsx');
+  }catch(e){ toast('导出失败：' + ((e && e.message) || e)); }
 }
 function exportBySession(){
+  closeModal();
   if(!REG.length) return toast('暂无可导出的数据');
-  const rows = [['时段','课程','教师','教室','容量','已报人数','家长名单']];
-  SESSIONS.forEach(s => {
-    const bs = REG.filter(r => (r.picks || []).includes(s.id));
-    rows.push([s.period, s.name, s.teacher, s.room, CAPACITY, bs.length,
-      bs.map(b => b.cn + '(' + b.cls + '班' + (b.phone ? ' ' + b.phone : '') + ')').join('、')]);
-  });
-  const d = new Date().toISOString().slice(0, 10);
-  downloadCSV(rows, '开放日各课堂名单_' + d + '.csv');
+  try{
+    downloadXlsx('按课堂名单', exportRowsBySession(), '开放日报名表_按课堂_' + todayStr() + '.xlsx');
+  }catch(e){ toast('导出失败：' + ((e && e.message) || e)); }
 }
 
 /* =====================================================================
-   十二、通用弹窗
+   十一、通用弹窗
    ===================================================================== */
 function modal(inner){ $('#modalRoot').innerHTML = '<div class="mask">' + inner + '</div>'; }
 function closeModal(){ $('#modalRoot').innerHTML = ''; }
@@ -1009,21 +1232,32 @@ function confirmBox({title, desc, okText = '确认', danger = false, needText, i
 }
 
 /* =====================================================================
-   十三、启动
+   十二、启动
    ===================================================================== */
 document.querySelectorAll('.tab').forEach(el => el.addEventListener('click', () => {
   tab = el.dataset.tab;
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x === el));
-  if(tab === 'admin' && AUTH.isAdmin) refresh();
+  if(tab === 'admin' && adminIn) refresh();
   render();
 }));
 
-(async function boot(){
-  paintLive();
-  render();
-  await authInit();
-  startRealtime();
-  render();
+(function boot(){
+  try{
+    paintLive();
+    render();
+    window.__vkbsBooted = true;      // 通知看门狗：主脚本已正常运行
+    startRealtime();
+    render();
+  }catch(e){
+    if(window.__vkbsDiag){
+      window.__vkbsDiag('页面初始化失败，已停止加载。', [
+        '· 错误信息：' + ((e && e.message) || e),
+        '· 浏览器：' + navigator.userAgent,
+        '· 请将本页截图反馈给技术人员。'
+      ]);
+    }
+    toast((e && e.message) || '初始化失败');
+  }
 })();
 </script>
 </body>
