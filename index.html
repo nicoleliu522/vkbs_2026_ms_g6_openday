@@ -47,6 +47,10 @@
   .period-note{font-size:11px;color:var(--text-sub);margin-left:auto}
   .break-line{text-align:center;color:#bbb;font-size:11px;margin:12px 0;letter-spacing:2px}
 
+  /* 名额更新时间 + 手动刷新（按需同步，不常驻长连接） */
+  .refresh-bar{display:flex;align-items:center;gap:8px;margin:2px 2px 8px;font-size:11px;color:var(--text-sub);line-height:1.4}
+  .refresh-bar .btn-sm{margin-left:auto;padding:5px 10px;font-size:11.5px;flex-shrink:0}
+
   /* 课程卡片 */
   .course{border:1px solid var(--line);border-radius:12px;padding:11px 12px;margin-bottom:9px;background:#fff;transition:.2s}
   .course.selected{border-color:var(--green);background:var(--green-light)}
@@ -339,8 +343,13 @@ let dbState = 'connecting';   // connecting | live | error | denied
 
 async function api(method, path, body){
   const url = DB_URL + path + '.json';
-  const opt = { method, headers:{ 'Content-Type':'application/json' } };
-  if(body !== undefined) opt.body = JSON.stringify(body);
+  /* 只在有请求体（POST / PUT）时才带 Content-Type：
+     带自定义头的 GET / DELETE 会触发 CORS 预检，请求数直接翻倍。 */
+  const opt = { method };
+  if(body !== undefined){
+    opt.headers = { 'Content-Type':'application/json' };
+    opt.body = JSON.stringify(body);
+  }
 
   let res;
   try{ res = await fetch(url, opt); }
@@ -373,8 +382,23 @@ function applyRemote(data){
   if(changed) renderSafe();
 }
 let dbSig = null;
+let lastSyncAt = 0;     // 最近一次成功拉到云端数据的时间
+let refreshing = false;
 async function refresh(){
-  try{ applyRemote(await fetchAll()); }catch(e){ /* 状态已记录 */ }
+  try{
+    const d = await fetchAll();
+    lastSyncAt = Date.now();     // 只有真的拉到了才算同步成功
+    applyRemote(d);
+  }catch(e){ /* 连接状态已在 api() 里记录 */ }
+}
+/* 家长主动点「↻ 刷新名额」：按需拉一次，并刷新界面上的更新时间 */
+async function refreshNow(){
+  if(refreshing) return;
+  refreshing = true;
+  try{ await refresh(); }catch(e){}
+  refreshing = false;
+  render();                      // 数据就算没变，也要刷新「更新于 xx:xx」
+  toast(view === 'admin' ? '数据已更新' : '名额已更新');
 }
 /* 安全重绘：家长正在输入时绝不重绘，避免把已填内容清空 */
 function hasUserInput(){
@@ -388,36 +412,24 @@ function hasUserInput(){
   return false;
 }
 function renderSafe(){ if(!hasUserInput()) render(); }
-/* 实时推送：Firebase REST 的 SSE 流（失败自动降级为轮询） */
-let ES = null;
+/* =====================================================================
+   按需同步（不使用 SSE 长连接）
+   SSE 会让每个打开的页面长期占用 1 条并发连接，活动日家长同时打开时容易
+   撞上免费版 100 并发的上限。改为「按需拉取」：
+     ① 打开页面时拉一次；
+     ② 填完信息进入选课页 / 进入管理员后台时拉一次；
+     ③ 从后台切回本页（visibilitychange）时拉一次；
+     ④ 提交前后必拉一次（保证名额判断准确）；
+     ⑤ 家长点「↻ 刷新名额」时拉一次。
+   如需低频自动核对，把 AUTO_REFRESH_MS 改成 300000（5 分钟）即可，
+   改成 0 表示完全按需、不做任何后台轮询。
+   ===================================================================== */
+const AUTO_REFRESH_MS = 0;
 function startRealtime(){
   paintLive();
-  if(ES){ try{ ES.close(); }catch(e){} ES = null; }
-  if(window.EventSource){
-    try{
-      ES = new EventSource(DB_URL + DB_PATH + '.json');
-      ES.addEventListener('put', e => {
-        let m; try{ m = JSON.parse(e.data); }catch(err){ return; }
-        if(m.path === '/'){ applyRemote(m.data); }
-        else if(m.data === null){
-          const k = m.path.slice(1).split('/')[0];
-          REG = REG.filter(r => r.key !== k); renderSafe();
-        }else if(m.data){
-          const k = m.path.slice(1).split('/')[0];
-          const i = REG.findIndex(r => r.key === k);
-          const rec = Object.assign({key:k}, m.data);
-          if(i > -1) REG[i] = rec; else REG.push(rec);
-          renderSafe();
-        }
-        dbState = 'live'; paintLive();
-      });
-      ES.onerror = () => { try{ ES.close(); }catch(e){} ES = null; };
-    }catch(e){}
-  }
   refresh();
-  /* 兜底：60 秒静默核对一次。仅在「数据确实变化」且「家长没在输入」时才重绘，
-     所以不会像以前那样定时把页面刷掉、导致填了一半的信息消失。 */
-  if(!window.__vkbsTimer) window.__vkbsTimer = setInterval(() => refresh(), 60000);
+  if(AUTO_REFRESH_MS > 0 && !window.__vkbsTimer)
+    window.__vkbsTimer = setInterval(() => refresh(), AUTO_REFRESH_MS);
   if(!window.__vkbsVis){
     window.__vkbsVis = true;
     document.addEventListener('visibilitychange', () => { if(!document.hidden) refresh(); });
@@ -428,7 +440,7 @@ function paintLive(){
   const dot = $('#liveDot'), txt = $('#liveTxt');
   if(!dot) return;
   let label;
-  if(dbState === 'live')        label = (view === 'admin' && adminIn) ? '管理员模式' : '实时同步中';
+  if(dbState === 'live')        label = (view === 'admin' && adminIn) ? '管理员模式' : '已连接';
   else if(dbState === 'denied') label = '无访问权限';
   else if(dbState === 'error')  label = '连接异常';
   else                          label = '连接中';
@@ -456,6 +468,7 @@ let submitting = false;                 // 防止重复提交
 const $  = s => document.querySelector(s);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtTime = ts => ts ? new Date(ts).toLocaleString('zh-CN', {hour12:false}) : '';
+const fmtClock = ts => ts ? new Date(ts).toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit', hour12:false}) : '';
 /* 姓名归一化：忽略空格、全角空格等空白差异，避免「张 三」与「张三」被当成两个人 */
 const normName = s => String(s == null ? '' : s).replace(/\s+/g, '');
 function toast(msg){
@@ -563,7 +576,8 @@ function diagCard(){
       · 浏览器：${esc(navigator.userAgent)}<br>
       · 本机存储：${esc(store)}<br>
       · 数据库连接：${esc(dbState)}（live = 正常同步）<br>
-      · 实时推送：${ES ? '已启用（SSE 实时推送）' : '未启用，已降级为 60 秒静默核对'}<br>
+      · 同步方式：按需拉取（不用长连接，减轻并发压力）<br>
+      · 自动核对：${AUTO_REFRESH_MS > 0 ? '每 ' + Math.round(AUTO_REFRESH_MS / 1000) + ' 秒一次' : '已关闭，只在打开/切回/提交/手动刷新时拉取'}<br>
       · 自动重绘：仅在数据变化且未在输入时进行（不会清空已填内容）<br>
       · 页面脚本大小：约 ${pageKb} KB（完整版应大于 30 KB）
     </div>
@@ -582,6 +596,7 @@ function saveMe(){
     return toast('该学生已有家长提交过选课（' + dup.cn + '），每个家庭限 1 名家长代表，如需调整请联系班主任');
   me = {cls, cn, en, phone}; LS.set(K_ME, me);
   toast('信息已保存'); render();
+  refresh();                                   // 进入选课页时按需拉一次最新名额
 }
 
 /* ---------- 选课 ---------- */
@@ -602,6 +617,12 @@ function renderPick(){
   }else if(editing){
     html += `<div class="banner warn">✏️ 正在修改已提交的选课，重新提交后将覆盖原记录，请留意新回执。</div>`;
   }
+
+  /* 按需同步：显示名额数据的更新时间，家长可随时点「↻ 刷新名额」拿最新数据 */
+  html += `<div class="refresh-bar">
+    <span>名额更新于 <b>${lastSyncAt ? fmtClock(lastSyncAt) : '--:--'}</b>，选课前可点右侧刷新</span>
+    <button class="btn-sm gray" onclick="refreshNow()">↻ 刷新名额</button>
+  </div>`;
 
   PERIODS.forEach(pd => {
     if(pd === 'P3') html += '<div class="break-line">— · 课间休息 Break · —</div>';
@@ -907,13 +928,13 @@ function renderAdmin(){
     <div class="tip" style="margin-top:10px">👥 六年级家庭 <b>${famG6}</b> 户 ｜ 五年级家庭 <b>${famG5}</b> 户<br>每个课堂限 ${CAPACITY} 位家长（六年级 ${GRADE_QUOTA} 名 + 五年级 ${GRADE_QUOTA} 名）</div>
     <div class="row-flex" style="margin-top:12px">
       <button class="btn-sm" onclick="askExport()">⬇ 导出报名表（Excel）</button>
-      <button class="btn-sm gray" onclick="refresh()">↻ 刷新</button>
+      <button class="btn-sm gray" onclick="refreshNow()">↻ 刷新</button>
     </div>
     <div class="tip" style="margin-top:8px">导出时可选择「按班级」（逐户名单，按班排序）或「按课堂」（逐节课名单），文件为 Excel。</div>
   </div>
 
   <div class="card">
-    <div class="sec-title">📊 各课堂报名情况<span class="mini">实时同步</span></div>`;
+    <div class="sec-title">📊 各课堂报名情况<span class="mini">更新于 ${lastSyncAt ? fmtClock(lastSyncAt) : '--:--'}</span></div>`;
 
   PERIODS.forEach(pd => {
     html += `<div class="period-head"><span class="period-tag">${pd}</span><span class="period-name">${PERIOD_NAME[pd]}</span></div>`;
@@ -960,11 +981,11 @@ function renderAdmin(){
 /* 右上角按钮：家长页 ↔ 管理员后台；未登录时先显示登录表单 */
 function toggleAdmin(){
   if(view === 'admin'){ backToMain(); return; }
-  view = 'admin'; render(); paintLive();
+  view = 'admin'; render(); paintLive(); refresh();   // 进入后台时按需拉一次
   try{ window.scrollTo(0, 0); }catch(e){}
 }
 function backToMain(){
-  view = 'main'; render(); paintLive();
+  view = 'main'; render(); paintLive(); refresh();    // 回到选课页时按需拉一次
   try{ window.scrollTo(0, 0); }catch(e){}
 }
 function doLogin(){
