@@ -290,31 +290,31 @@ const gradeName = g => (g === '5' ? '五年级' : g === '6' ? '六年级' : (g ?
  */
 const SESSIONS = [
   // ---------- P1 ---------- 
-  {id:'e1', period:'P1', type:'eng', name:'英语 · H 层 (A)',  level:'H',   teacher:'Arné Engelbrecht', room:'211', grp:['6-1','6-2','6-3']},
-  {id:'e2', period:'P1', type:'eng', name:'英语 · S1 层 (A)', level:'S1',  teacher:'Sarah Harkin',      room:'208', grp:['6-1','6-2','6-3']},
-  {id:'e3', period:'P1', type:'eng', name:'英语 · S1 层 (B)', level:'S1',  teacher:'Lauren Berry',      room:'207', grp:['6-1','6-2','6-3']},
-  {id:'e4', period:'P1', type:'eng', name:'英语 · ESL 层 (A)',level:'ESL', teacher:'Calum Carey',       room:'206', grp:['6-1','6-2','6-3']},
-  {id:'m1', period:'P1', type:'math', name:'数学 Math', level:'何春利老师组', teacher:'何春利 Ms. Cathy He', room:'209', grp:['6-4','6-5']},
-  {id:'m2', period:'P1', type:'math', name:'数学 Math', level:'涂恋恋老师组', teacher:'涂恋恋 Ms. Tu',       room:'210', grp:['6-4','6-5']},
+  {id:'e1', period:'P1', type:'eng', name:'英语 · H 层 (A)',  level:'H',   teacher:'Ms. Arné Engelbrecht', room:'211', grp:['6-1','6-2','6-3']},
+  {id:'e2', period:'P1', type:'eng', name:'英语 · S1 层 (A)', level:'S1',  teacher:'Ms. Sarah Harkin',      room:'208', grp:['6-1','6-2','6-3']},
+  {id:'e3', period:'P1', type:'eng', name:'英语 · S1 层 (B)', level:'S1',  teacher:'Ms. Lauren Berry',      room:'207', grp:['6-1','6-2','6-3']},
+  {id:'e4', period:'P1', type:'eng', name:'英语 · ESL 层 (A)',level:'ESL', teacher:'Mr. Calum Carey',       room:'206', grp:['6-1','6-2','6-3']},
+  {id:'m1', period:'P1', type:'math', name:'数学 Math', level:'何春利老师组', teacher:'何春利老师 Ms. Cathy He', room:'209', grp:['6-4','6-5']},
+  {id:'m2', period:'P1', type:'math', name:'数学 Math', level:'吴雯希老师组', teacher:'吴雯希老师 Ms. Wu',       room:'210', grp:['6-4','6-5']},
   // ---------- P2 ----------
-  {id:'m3', period:'P2', type:'math', name:'数学 Math', level:'吴雯希老师组', teacher:'吴雯希 Ms. Katie Qin', room:'206', grp:['6-1','6-2','6-3']},
-  {id:'m4', period:'P2', type:'math', name:'数学 Math', level:'白文艳老师组', teacher:'白文艳 Ms. Bai',       room:'207', grp:['6-1','6-2','6-3']},
-  {id:'m5', period:'P2', type:'math', name:'数学 Math', level:'涂恋恋老师组', teacher:'涂恋恋 Ms. Tu',        room:'208', grp:['6-1','6-2','6-3']},
-  {id:'g1', period:'P2', type:'cls', name:'G-Science', teacher:'James Stewart', room:'209', cls:'6-4'},
+  {id:'m3', period:'P2', type:'math', name:'数学 Math', level:'吴雯希老师组', teacher:'吴雯希老师 Ms. Wu', room:'206', grp:['6-1','6-2','6-3']},
+  {id:'m4', period:'P2', type:'math', name:'数学 Math', level:'白文艳老师组', teacher:'白文艳老师 Ms. Bai',       room:'207', grp:['6-1','6-2','6-3']},
+  {id:'m5', period:'P2', type:'math', name:'数学 Math', level:'涂恋恋老师组', teacher:'涂恋恋老师 Ms. Tu',        room:'208', grp:['6-1','6-2','6-3']},
+  {id:'g1', period:'P2', type:'cls', name:'G-Science', teacher:'Mr. James Stewart', room:'209', cls:'6-4'},
   {id:'g2', period:'P2', type:'cls', name:'G-Science', teacher:'Mr.P',          room:'210', cls:'6-5'},
   // ---------- P3 ----------
-  {id:'c11', period:'P3', type:'cls', name:'语文 Chinese', teacher:'汪颖 Ms. Wang Ying', room:'206', cls:'6-1'},
-  {id:'c21', period:'P3', type:'cls', name:'CCE',          teacher:'Mohammed Tenil',    room:'207', cls:'6-2'},
-  {id:'c31', period:'P3', type:'cls', name:'赛艇 Rowing',  teacher:'赛艇教练团队',        room:'赛艇馆', cls:'6-3'},
-  {id:'c41', period:'P3', type:'cls', name:'STEM',         teacher:'Miguel Carrasquel', room:'STEM Room', cls:'6-4'},
-  {id:'c51', period:'P3', type:'cls', name:'语文 Chinese', teacher:'顾江溪 Ms. Gu',      room:'210', cls:'6-5'},
+  {id:'c11', period:'P3', type:'cls', name:'语文 Chinese', teacher:'汪颖老师 Ms. Wang Ying', room:'206', cls:'6-1'},
+  {id:'c21', period:'P3', type:'cls', name:'CCE',          teacher:'Mr. Mohammed Tenil',    room:'207', cls:'6-2'},
+  {id:'c31', period:'P3', type:'cls', name:'赛艇 Rowing',  teacher:'赛艇教练',        room:'赛艇馆', cls:'6-3'},
+  {id:'c41', period:'P3', type:'cls', name:'STEM',         teacher:'Mr. Miguel Carrasquel', room:'STEM Room', cls:'6-4'},
+  {id:'c51', period:'P3', type:'cls', name:'语文 Chinese', teacher:'顾江溪老师 Ms. Gu',      room:'210', cls:'6-5'},
   // ---------- P4 ----------
-  {id:'c12', period:'P4', type:'cls', name:'体育 PE',      teacher:'高亚飞',             room:'操场', cls:'6-1'},
-  {id:'c22', period:'P4', type:'cls', name:'STEM',         teacher:'Miguel Carrasquel', room:'STEM Room', cls:'6-2'},
-  {id:'c32', period:'P4', type:'cls', name:'语文 Chinese', teacher:'曹丽妮 Ms. Cao',     room:'208', cls:'6-3'},
-  {id:'e5', period:'P4', type:'eng', name:'英语 · H 层 (B)',   level:'H',   teacher:'Arné Engelbrecht', room:'206', grp:['6-4','6-5']},
-  {id:'e6', period:'P4', type:'eng', name:'英语 · S 层 (C)',   level:'S',   teacher:'Sarah Harkin',     room:'210', grp:['6-4','6-5']},
-  {id:'e7', period:'P4', type:'eng', name:'英语 · ESL 层 (B)', level:'ESL', teacher:'Calum Carey',      room:'209', grp:['6-4','6-5']},
+  {id:'c12', period:'P4', type:'cls', name:'体育 PE',      teacher:'高亚飞老师',             room:'操场', cls:'6-1'},
+  {id:'c22', period:'P4', type:'cls', name:'STEM',         teacher:'Mr. Miguel Carrasquel', room:'STEM Room', cls:'6-2'},
+  {id:'c32', period:'P4', type:'cls', name:'语文 Chinese', teacher:'曹丽妮老师 Ms. Cao',     room:'208', cls:'6-3'},
+  {id:'e5', period:'P4', type:'eng', name:'英语 · H 层 (B)',   level:'H',   teacher:'Ms. Arné Engelbrecht', room:'206', grp:['6-4','6-5']},
+  {id:'e6', period:'P4', type:'eng', name:'英语 · S 层 (C)',   level:'S',   teacher:'Ms. Sarah Harkin',     room:'210', grp:['6-4','6-5']},
+  {id:'e7', period:'P4', type:'eng', name:'英语 · ESL 层 (B)', level:'ESL', teacher:'Mr. Calum Carey',      room:'209', grp:['6-4','6-5']},
 ];
 const sessionById = id => SESSIONS.find(s => s.id === id);
 
